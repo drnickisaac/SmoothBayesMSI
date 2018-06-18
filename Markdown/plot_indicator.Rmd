@@ -1,0 +1,106 @@
+---
+title: "Look at  the Smoothing params"
+author: "Nick Isaac"
+date: "18 June 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(reshape2)
+
+source_dir <- '../models/15kit'
+files <- list.files(source_dir)
+read.afresh <- FALSE
+
+```
+
+## Extract model output
+First we have to get ready
+
+```{r prep model output}
+# convert the file names to data
+temp <- strsplit(gsub(files, pa=".rData", repl=""),"_")
+metadata <- data.frame(raw = files, 
+                       group=sapply(temp, function(x) x[[1]]),
+                       knots=sapply(temp, function(x) x[[2]]),
+                       scfac=sapply(temp, function(x) x[[3]]))
+
+```
+
+Now we can get the data out of the models and manipulate
+
+```{r extract model output}
+
+if(read.afresh){
+
+output <- sapply(files, 
+            simplify = FALSE,
+            USE.NAMES = TRUE,
+            function(modelfile){
+              load(file.path(source_dir, modelfile)) # -> model
+              x <- model$summary
+              logI <- x[grepl("logI", dimnames(x)[[1]]),]
+              logI2 <- x[grepl("logI2", dimnames(x)[[1]]),]
+              logLambda <- x[grepl("logLambda", dimnames(x)[[1]]),]
+              out <- rbind(logI, logI2, logLambda)
+              out <- as.data.frame(out[,c(1,2,3,7,8)])
+              out$param <- rownames(out)
+              attr(out, 'n.iter') <- model$mcmc.info$n.iter           
+              return(out)
+            })
+
+# first get the n.iter values out
+n.iter <- sapply(output, function(m) attr(m, 'n.iter'))
+mod_info <- data.frame(raw=names(n.iter), n.iter=n.iter, row.names=NULL)
+mod_info <- merge(mod_info, metadata)[,-1]
+unique(mod_info$n.iter)
+
+# now manipulate the output in to a useful format
+output <- melt(output, id=1:6)
+output <- merge(output, metadata, by.x="L1", by.y='raw')[,-1]
+
+# now extract the year info
+temp <- strsplit(gsub(output$param, pa="]", repl=""), "\\[")
+output$param <- sapply(temp, function(x) x[[1]])
+output$year <- sapply(temp, function(x) as.numeric(x[[2]]))
+
+output$knots <- as.numeric(as.character(output$knots))
+output$scfac <- as.numeric(as.character(output$scfac))
+
+names(output) <- gsub(names(output), pa="2.5%", repl='lower')
+names(output) <- gsub(names(output), pa="97.5%", repl='upper')
+
+save(output, file='output_15kit.rData')
+} else 
+  load(file='output_15kit.rData')
+
+```
+
+## Plot the results
+
+```{r plot results, fig.width = 12, fig.height=10, echo=FALSE}
+#Ind <- subset(output, param != 'logLambda')
+Ind <- output
+#Ind$param <- factor(Ind$param, levels = c('logI2', 'logI'), ordered=TRUE)
+# no this doesn't work...... 
+
+# convert back to the measurement scale?
+
+gp <- ggplot(aes(y=mean, x=year,
+                 ymin=lower, ymax=upper), data=Ind)
+gp <- gp + geom_line(aes(col=group))
+gp <- gp + geom_ribbon(aes(fill=group), alpha=0.2)
+gp <- gp + facet_wrap(~knots + scfac, ncol=4, scales='free')
+gp <- gp + ylab(NULL)# + scale_y_continuous(trans = "exp")
+
+gp %+% subset(Ind, param == 'logI') + 
+  ggtitle('log indicator (estimated geomean)')
+gp %+% subset(Ind, param == 'logI2') + 
+  ggtitle('log indicator (state variable)')
+gp %+% subset(Ind, param == 'logLambda') + 
+  ggtitle('growth rates')
+```
+

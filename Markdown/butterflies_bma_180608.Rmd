@@ -29,7 +29,7 @@ library(reshape2)
 library(RColorBrewer)
 library(ggplot2)
 
-iter <- 15e3
+iter <- 15e30
 save_model <- TRUE
 test <- FALSE
 
@@ -86,9 +86,8 @@ Now we can run the models.
 ```{r runButterflies, echo = FALSE, message = FALSE, fig.width = 6, fig.height = 4, warning = FALSE, results = 'hide'}
 
 
-
 #for(group in c('specialist')){
-for(group in c('wider')){
+for(group in c('wider','specialist')){
     for(nk in c(8, 12, 16)){
 #    for(nk in c(16)){
 #        for(scaling_factor in  c(3)){
@@ -118,8 +117,13 @@ plot_growthrates(logLambda = model$mean$logLambda,
 
 #if(save_model) saveRDS(object=model, file=file.path('BMA_development/models/',
 #                                    paste0(group,"_",nk,"_",scaling_factor,".rds")))
-if(save_model) save(model, file=file.path(results_folder,
-                                   paste0(group,"_",nk,"_",scaling_factor,".rData")))
+if(save_model) 
+  if(iter < 20000)
+    save(model, file=file.path(results_folder,
+                            paste0(group,"_",nk,"_",scaling_factor,".rData")))
+  else write.csv(model$summary, file=file.path(results_folder,
+                            paste0(group,"_",nk,"_",scaling_factor,".csv")))
+
 
 # plot the modelled vs observed spindex
 match_data <- m_data

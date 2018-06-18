@@ -11,8 +11,14 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(reshape2)
 
-source_dir <- '../models'
+source_dir <- '../models/15kit'
 files <- list.files(source_dir)
+```
+
+## Extract model output
+First gwe have to get ready
+
+```{r prep model output}
 
 smpars <- c('beta[1]','beta[2]',"taub")
 
@@ -25,27 +31,31 @@ metadata <- data.frame(raw = files,
 
 ```
 
-## Extract model output
-First get the data out of the models
+Now we can get the data out of the models
 
 ```{r extract model output}
 output <- sapply(files, 
-#output <- sapply(files[grepl(group, files)], 
             simplify = FALSE,
             USE.NAMES = TRUE,
             function(modelfile){
               load(file.path(source_dir, modelfile)) # -> model
               x <- model$summary
-              #logI <- x[grepl("logI", dimnames(x)[[1]]),]
-              #logI2 <- x[grepl("logI2", dimnames(x)[[1]]),]
               smoothpars <- x[dimnames(x)[[1]] %in% smpars,]
               out <- as.data.frame(smoothpars[,c(1,2,3,7,8)])
               out$param <- rownames(out)
+              attr(out, 'n.iter') <- model$mcmc.info$n.iter           
               return(out)
             })
 
+# first get the n.iter values out
+n.iter <- sapply(output, function(m) attr(m, 'n.iter'))
+mod_info <- data.frame(raw=names(n.iter), n.iter=n.iter, row.names=NULL)
+mod_info <- merge(mod_info, metadata)[,-1]
+
+
+# now manipulate the output in to a useful format
 output <- melt(output, id=1:6)
-output <- merge(output, metadata, by.x="L1", by.y='raw')
+output <- merge(output, metadata, by.x="L1", by.y='raw')[,-1]
 
 output$precision <- 1/(output$sd^2)
 output$width <- output[,"97.5%"] - output[,"2.5%"]
@@ -55,9 +65,9 @@ output$scfac <- as.numeric(as.character(output$scfac))
 
 ```
 
-## Including Plots
+## Plot the results
 
-Plot the results
+
 ```{r plot, echo=FALSE}
 smp <- subset(output, param %in% smpars)
 (qp <- qplot(y=width, x=factor(knots, ordered=TRUE), 
@@ -66,14 +76,16 @@ smp <- subset(output, param %in% smpars)
   xlab('number of knots') +
   ylab('width of 95% credible intervals')
 )
-#ggsave(qp, file='BMA_development/plots/width_of_smoothing_params.png')
 
 (qp <- qplot(y=Rhat, x=factor(knots, ordered=TRUE), 
       data=smp, col=factor(scfac), shape=group) + 
-  facet_wrap(~param, scales='free') +
+  facet_wrap(~param) +
   xlab('number of knots')
 )
-#ggsave(qp, file='BMA_development/plots/width_of_smoothing_params.png')
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Check how many iterations this is based on
+
+```{r mod_info}
+unique(mod_info$n.iter)
+```
