@@ -35,7 +35,7 @@ test <- FALSE
 
 # create a folder for the results
 #results_folder <- 'BMA_development/plots'
-results_folder <- 'models'
+results_folder <- '../models'
 if(!dir.exists(results_folder)) dir.create(results_folder)
 
 #knots <- c(8, 12, 16)
