@@ -1,3 +1,4 @@
+
 ---
 title: "Testing BMAs"
 author: "Tom August, Stephen Freeman, Nick Isaac"
@@ -29,7 +30,7 @@ library(reshape2)
 library(RColorBrewer)
 library(ggplot2)
 
-iter <- 15e30
+iter <- 250e3
 save_model <- TRUE
 test <- FALSE
 
@@ -83,15 +84,15 @@ in_data$year <- in_data$year - firstyr + 1
 ## Run
 Now we can run the models.
 
-```{r runButterflies, echo = FALSE, message = FALSE, fig.width = 6, fig.height = 4, warning = FALSE, results = 'hide'}
+```{r runButterflies, echo = FALSE, message = FALSE, fig.width = 8, fig.height = 6, warning = FALSE, results = 'hide'}
 
-
+#for(group in c('wider')){
 #for(group in c('specialist')){
 for(group in c('wider','specialist')){
-    for(nk in c(8, 12, 16)){
-#    for(nk in c(16)){
-#        for(scaling_factor in  c(3)){
-        for(scaling_factor in  c(1,3,9)){
+    for(nk in c(8, 10, 12)){
+#    for(nk in c(8)){
+#        for(scaling_factor in  c(5)){
+        for(scaling_factor in  c(1,3,5)){
               in_data$se <- in_data$se * scaling_factor
 
     m_data <- subset(in_data, species %in% all_species[all_species$type==group, 'BMScode'])
@@ -103,6 +104,8 @@ bma_indicator <- bma(m_data, model = 'smooth_det2',
                      parallel = TRUE,
                      m.scale = 'log10',
                      num.knots = nk,
+                     n.thin = 10,
+                     save.sppars = FALSE,
                      plot = FALSE)
 
 plot_indicator(indicator = bma_indicator[,'Index'],
@@ -110,30 +113,47 @@ plot_indicator(indicator = bma_indicator[,'Index'],
                main = paste(group, 'indicator', message))
 
 model <- attr(bma_indicator, 'model')
-plot_growthrates(logLambda = model$mean$logLambda,
-                 CIs = with(model, 
-                            data.frame(lower=q2.5$logLambda, upper=q97.5$logLambda)),
-                 main = paste(group,'growth rate', message))
-
-#if(save_model) saveRDS(object=model, file=file.path('BMA_development/models/',
-#                                    paste0(group,"_",nk,"_",scaling_factor,".rds")))
+                
 if(save_model) 
   if(iter < 20000)
+    #saveRDS(object=model, file=file.path('BMA_development/models/',
+        # paste0(group,"_",nk,"_",scaling_factor,".rds"))
     save(model, file=file.path(results_folder,
-                            paste0(group,"_",nk,"_",scaling_factor,".rData")))
+                    paste0(group,"_",nk,"_",scaling_factor, "_",iter/1000,".rData")))
   else write.csv(model$summary, file=file.path(results_folder,
-                            paste0(group,"_",nk,"_",scaling_factor,".csv")))
+                    paste0(group,"_",nk,"_",scaling_factor, "_",iter/1000,".csv")))
 
+#plot_growthrates(logLambda = model$mean$logLambda,
+#                CIs = with(model, 
+#                          data.frame(lower=q2.5$logLambda, #upper=q97.5$logLambda)),
+#                 main = paste(group,'growth rate', message))
 
+ 
 # plot the modelled vs observed spindex
-match_data <- m_data
-spmatch <- data.frame(bms=unique(match_data$species), model=order(unique(match_data$species)))
-match_data$species <- spmatch$model[match(match_data$species, spmatch$bms)]
+#match_data <- m_data
+#spmatch <- data.frame(bms=unique(match_data$species), #model=order(unique(match_data$species)))
+#match_data$species <- spmatch$model[match(match_data$species, spmatch$bms)]
 
-plot_species(spindex = model$mean$spindex,
-             lower = model$q2.5$spindex,
-             upper = model$q97.5$spindex,
-             data_in = match_data, main = paste0(group, " indices", message))
+#plot_species(spindex = model$mean$spindex,
+#             lower = model$q2.5$spindex,
+#             upper = model$q97.5$spindex,
+#             data_in = match_data, main = paste0(group, " indices", message))
+
+############################################################### traceplot
+
+sims.array <- as.data.frame(model$sims.list)
+sims.array$chain <- melt(sapply(1:3, rep, times=model$mcmc.info$n.samples/3))$value
+sims.array$it <- rep(1:(model$mcmc.info$n.samples/3), times=3)
+sims.array <- melt(sims.array, id=c('it', 'chain'))
+kit <- floor(model$mcmc.info$n.iter/1000)
+
+gp <- ggplot(data=sims.array, aes(x=it, y=value, col=factor(chain))) +
+  facet_wrap(~variable, scales='free', ncol=6) + geom_line() + theme_bw()
+gp + ggtitle(paste(group, 'traceplot', message))
+ggsave(gp, file=file.path(results_folder, paste('tp',group,nk,scaling_factor,kit,'kit.png', sep="_")),
+       he=600, wi=400, units='mm', type='cairo')
+
+
 ###################################################### end loops
 }}}
 ```

@@ -1,5 +1,5 @@
 ---
-title: "Look at  the Smoothing params"
+title: "Plot the butterfly indicator"
 author: "Nick Isaac"
 date: "18 June 2018"
 output: html_document
@@ -11,18 +11,28 @@ knitr::opts_chunk$set(echo = TRUE)
 library(ggplot2)
 library(reshape2)
 
-source_dir <- '../models/15kit'
+source_dir <- '../models/50kit'
 files <- list.files(source_dir)
-read.afresh <- FALSE
+files <- files[!files %in% 'traceplots']
+read.afresh <- TRUE
 
+# are they csv or rData? (the latter has the full JAGS object)
+temp <- strsplit(files, "\\.")
+suffix <- sapply(temp, function(x) x[[2]])
+if(all(suffix == "csv")) {
+  filetype <- 'csv'
+} else 
+  if (all(suffix == "rData")) {filetype <- 'rData'
+} else stop('Error: multiple file types')
 ```
 
-## Extract model output
-First we have to get ready
 
-```{r prep model output}
+```{r prep model output, echo=FALSE}
+## Extract model output
+#First we have to get ready
+
 # convert the file names to data
-temp <- strsplit(gsub(files, pa=".rData", repl=""),"_")
+temp <- strsplit(gsub(files, pa=paste0("\\.", filetype), repl=""),"_")
 metadata <- data.frame(raw = files, 
                        group=sapply(temp, function(x) x[[1]]),
                        knots=sapply(temp, function(x) x[[2]]),
@@ -30,9 +40,9 @@ metadata <- data.frame(raw = files,
 
 ```
 
-Now we can get the data out of the models and manipulate
 
-```{r extract model output}
+```{r extract model output, echo=FALSE}
+#Now we can get the data out of the models and manipulate
 
 if(read.afresh){
 
@@ -40,15 +50,25 @@ output <- sapply(files,
             simplify = FALSE,
             USE.NAMES = TRUE,
             function(modelfile){
-              load(file.path(source_dir, modelfile)) # -> model
-              x <- model$summary
-              logI <- x[grepl("logI", dimnames(x)[[1]]),]
-              logI2 <- x[grepl("logI2", dimnames(x)[[1]]),]
-              logLambda <- x[grepl("logLambda", dimnames(x)[[1]]),]
-              out <- rbind(logI, logI2, logLambda)
-              out <- as.data.frame(out[,c(1,2,3,7,8)])
-              out$param <- rownames(out)
-              attr(out, 'n.iter') <- model$mcmc.info$n.iter           
+              if(filetype == 'rData'){
+                load(file.path(source_dir, modelfile)) # -> model
+                x <- model$summary
+                logI <- x[grepl("logI", dimnames(x)[[1]]),]
+                logI2 <- x[grepl("logI2", dimnames(x)[[1]]),]
+                logLambda <- x[grepl("logLambda", dimnames(x)[[1]]),]
+                out <- as.data.frame(rbind(logI, logI2, logLambda))
+                out$param <- rownames(out)
+                niter <- model$mcmc.info$n.iter
+              } else {
+                x <- read.csv(file.path(source_dir, modelfile))
+                names(x)[1] <- 'param' 
+                logI <- x[grepl("logI", x$param),]
+                logI2 <- x[grepl("logI2", x$param),]
+                logLambda <- x[grepl("logLambda", x$param),]
+                out <- rbind(logI, logI2, logLambda)
+                niter <- max(x$n.eff) # wrong by a factor of 6.67
+              }
+              attr(out, 'n.iter') <- niter           
               return(out)
             })
 
@@ -59,7 +79,7 @@ mod_info <- merge(mod_info, metadata)[,-1]
 unique(mod_info$n.iter)
 
 # now manipulate the output in to a useful format
-output <- melt(output, id=1:6)
+output <- melt(output, id=1:ncol(output[[1]]))
 output <- merge(output, metadata, by.x="L1", by.y='raw')[,-1]
 
 # now extract the year info
@@ -73,34 +93,75 @@ output$scfac <- as.numeric(as.character(output$scfac))
 names(output) <- gsub(names(output), pa="2.5%", repl='lower')
 names(output) <- gsub(names(output), pa="97.5%", repl='upper')
 
-save(output, file='output_15kit.rData')
-} else 
-  load(file='output_15kit.rData')
+names(output) <- gsub(names(output), pa="X2.5.", repl='lower')
+names(output) <- gsub(names(output), pa="X97.5.", repl='upper')
+
+save(output, file='output.rData')
+} else load(file='output_50kit.rData')
+```
+
+```{r transform, echo=FALSE}
+Ind <- output
+
+Ind[Ind$param == "logI2",c("mean","lower","upper")] <- 2 + Ind[Ind$param == "logI2",c("mean","lower","upper")]
+
+Ind$mean <- 10^Ind$mean
+Ind$lower <- 10^Ind$lower
+Ind$upper <- 10^Ind$upper
+
+Ind$param <- gsub(Ind$param, pa="logI2", repl="I`")
+Ind$param <- gsub(Ind$param, pa="logI", repl="I")
 
 ```
 
-## Plot the results
-
-```{r plot results, fig.width = 12, fig.height=10, echo=FALSE}
-#Ind <- subset(output, param != 'logLambda')
-Ind <- output
-#Ind$param <- factor(Ind$param, levels = c('logI2', 'logI'), ordered=TRUE)
-# no this doesn't work...... 
-
-# convert back to the measurement scale?
+## Plt the results on the measurement scale
+```{r prepare plot, echo=FALSE}
 
 gp <- ggplot(aes(y=mean, x=year,
                  ymin=lower, ymax=upper), data=Ind)
-gp <- gp + geom_line(aes(col=group))
+gp <- gp + geom_line(aes(col= factor(param))) 
+gp <- gp + geom_ribbon(aes(fill=factor(param)), alpha=0.2)
+gp <- gp + ylab("Indicator (1976 = 100)") 
+gp <- gp + geom_hline(yintercept=100) + theme_classic()
+```
+
+
+# plot a single combo side by side
+```{r plot results1, fig.width = 12, fig.height=5, echo=FALSE}
+
+gp %+% subset(Ind, param != 'logLambda' & scfac == 1 & knots == 10) + 
+  facet_wrap(~group)  
+
+gp <- gp + facet_wrap(~knots + scfac, nrow=3, scales='free')
+
+```
+
+# plot the results of all combos
+```{r plot results2, fig.width = 12, fig.height=10, echo=FALSE}
+gp %+% subset(Ind, group == 'specialist' & param != 'logLambda') +  
+  ggtitle('Habitat specialist Indicator') + ylim(c(0,125))
+
+gp %+% subset(Ind, group == 'wider' & param != 'logLambda') +  
+  ggtitle('Wider Countryside Indicator') + ylim(c(0,200))
+```
+
+
+## Plot the results on the log scale
+
+```{r plot logresults, fig.width = 12, fig.height=10, echo=FALSE}
+
+gp <- ggplot(aes(y=mean, x=year,
+                 ymin=lower, ymax=upper), data=output)
+gp <- gp + geom_line(aes(col=group)) + theme_classic()
 gp <- gp + geom_ribbon(aes(fill=group), alpha=0.2)
-gp <- gp + facet_wrap(~knots + scfac, ncol=4, scales='free')
+gp <- gp + facet_wrap(~knots + scfac, nrow=3, scales='free')
 gp <- gp + ylab(NULL)# + scale_y_continuous(trans = "exp")
 
-gp %+% subset(Ind, param == 'logI') + 
+gp %+% subset(output, param == 'logI') + 
   ggtitle('log indicator (estimated geomean)')
-gp %+% subset(Ind, param == 'logI2') + 
+gp %+% subset(output, param == 'logI2') + 
   ggtitle('log indicator (state variable)')
-gp %+% subset(Ind, param == 'logLambda') + 
+gp %+% subset(output, param == 'logLambda') + 
   ggtitle('growth rates')
 ```
 
